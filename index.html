@@ -1528,6 +1528,11 @@ function createDatePicker(wrap){
   function close(){ popup.classList.remove('active'); }
 
   popup.addEventListener('click', e => {
+    // Ngăn sự kiện click nổi bọt ra ngoài popup: nếu để nổi bọt, sau khi render() ở dưới
+    // thay thế lại innerHTML (xóa nút vừa bấm khỏi DOM), listener đóng lịch gắn trên
+    // document sẽ thấy target không còn nằm trong wrap và đóng lịch ngay lập tức,
+    // khiến các nút lùi/tiến tháng (‹ ›) và lùi/tiến năm (« ») tưởng như không hoạt động.
+    e.stopPropagation();
     const cell = e.target.closest('[data-iso]');
     if(cell){ setIsoSilent(cell.dataset.iso); close(); return; }
     const action = e.target.dataset.action;
@@ -1991,6 +1996,23 @@ function saveAndConnectFirebase(){
   connectFirebase(cfg);
 }
 
+// Lưu bản sao cấu hình Firebase lên chính Firestore (collection cấu hình hệ thống),
+// để dữ liệu cấu hình có bản lưu trên cloud thay vì chỉ nằm cục bộ trong localStorage
+// của từng trình duyệt. Gọi sau khi đã xác thực đăng nhập admin thành công.
+async function saveFbConfigToCloud(cfg){
+  if(!fbDb) return;
+  try{
+    await fbDb.collection('app_config').doc('firebase_settings').set({
+      ...cfg,
+      updatedAt: new Date().toISOString(),
+    }, { merge: true });
+  } catch(err){
+    // Không chặn luồng kết nối chính nếu ghi cấu hình lên cloud thất bại
+    // (ví dụ do Firestore Rules chưa cho phép ghi collection này).
+    console.warn('Không thể lưu cấu hình Firebase lên cloud:', err);
+  }
+}
+
 function connectFirebase(cfg){
   if(fbConnecting) return;
   fbConnecting = true;
@@ -2034,6 +2056,7 @@ function connectFirebase(cfg){
         showAdminBadge(user.email);
         hideLoginOverlay();
         subscribeToFirestore();
+        saveFbConfigToCloud(cfg);
       } else {
         currentAdminEmail = null;
         hideAdminBadge();
